@@ -1,34 +1,41 @@
 from qwen_tts import Qwen3TTSModel
 import soundfile as sf
 import tkinter as tk
+from tkinter import messagebox
 import time 
 from pathlib import Path
 import shutil
-
-TTS_MODEL = Qwen3TTSModel.from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base")
-language = "en"
 
 window = tk.Tk()
 window.title("YouSpeak - Voice Cloning")
 window.geometry("800x600")
 window.configure(bg="#7b0416")
-tk.Label(window, text="Enter text to clone voice:").pack(pady=5)
 voice_list = tk.Listbox(window, height=5, selectmode=tk.SINGLE)
 add_button = tk.Button(window, text="Add New Voice", command=lambda: open_add_voice_window())
+add_button.pack(pady=5)
+voice_list.pack(pady=5)
+tk.Label(window, text="Enter text to clone voice:").pack(pady=5)
 text_entry = tk.Entry(window, width=50)
 text_entry.pack(pady=5)
 enter_button = tk.Button(window, text="Clone Voice", command=lambda: clone_voice(text_entry.get()))
 enter_button.pack(pady=5)
 
-
-
+TTS_MODEL = Qwen3TTSModel.from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+language = "English"
 
 BASE_DIR = Path(__file__).resolve().parent
 Sounds_DIR = BASE_DIR / "Sounds"
 Sounds_DIR.mkdir(exist_ok=True)
 
+def refresh_voice_list():
+    voice_list.delete(0, tk.END)
+    for name in list_sounds():
+        voice_list.insert(tk.END, name)
+
 def open_add_voice_window():
-    add_voice_window = tk.Tk()
+
+    voice_choice = "new"
+    add_voice_window = tk.Toplevel(window)
 
     add_voice_window.title("Add New Voice")
     add_voice_window.geometry("400x300")
@@ -44,10 +51,17 @@ def open_add_voice_window():
     enter_name_label.pack(pady=5)
     enter_name_entry = tk.Entry(add_voice_window, width=50)
     enter_name_entry.pack(pady=5)
-    finish_button = tk.Button(add_voice_window, text="Finish", command=lambda: add_sound(enter_name_entry.get(), path_entry.get(), transcript_entry.get()))
+    finish_button = tk.Button(add_voice_window, text="Finish", command=lambda: finish_adding_sound(enter_name_entry.get(), path_entry.get(), transcript_entry.get()))
     finish_button.pack(pady=20)
 
-    add_voice_window.mainloop()
+def open_output_window():
+    output_window = tk.Toplevel(window)
+    output_window.title("Output Audio Files")
+    output_window.geometry("400x300")
+    output_list = tk.Listbox(output_window, height=10, selectmode=tk.SINGLE)
+    output_list.pack(pady=5)
+    for name in list_outputs():
+        output_list.insert(tk.END, name)
 
 def list_sounds():
     return sorted(
@@ -55,21 +69,14 @@ def list_sounds():
         if (p / "ref.wav").exists() and (p / "ref.txt").exists()
     )
 
+voices = list_sounds()
+voice_list.insert(tk.END, *voices)
+
 def list_outputs():
     return sorted(
         p.name for p in BASE_DIR.iterdir()
         if p.suffix == ".wav"
     )
-
-
-def list_voices():
-    return sorted(
-        p.name for p in Sounds_DIR.iterdir()
-        if (p / "ref.wav").exists() and (p / "ref.txt").exists()
-    )
-
-voice_list.insert(tk.END, *list_voices())
-
 
 def load_sound(name):
     folder = Sounds_DIR / name
@@ -86,30 +93,32 @@ def add_sound(name, audio_path, transcript):
     (folder / "ref.txt").write_text(transcript.strip(), encoding="utf-8")
     return name
 
-voices = list_voices()
+def finish_adding_sound(name, audio_path, transcript):
+    add_sound(name, audio_path, transcript)
+    refresh_voice_list()
+    print(f"Added new voice: {name}")
+
+voices = list_sounds()
+refresh_voice_list()
 print("Voices:", ", ".join(voices) if voices else "(none yet)")
-choice = input("Voice name (or 'new' to add one): ").strip()
-
-if choice.lower() == "new" or choice not in voices:
-    name = input("Name for new voice: ").strip()
-    audio = input("Path to reference audio: ").strip('"')
-    text = input("Exact transcript of that audio: ")
-    choice = add_sound(name, audio, text)
-
-ref_audio_path, ref_text = load_sound(choice)
 
 def clone_voice(text):
-    global start_time
+    selection = voice_list.curselection()
+    if not selection:
+        messagebox.showwarning("Select a voice", "Choose a voice before cloning.")
+        return
+
+    voice_choice = voice_list.get(selection[0])
+    ref_audio_path, ref_text = load_sound(voice_choice)
     start_time = time.time()
     wavs, sr = TTS_MODEL.generate_voice_clone(
         text=text,
-        language="English",          
+        language=language,
         ref_audio=ref_audio_path,
         ref_text=ref_text,
     )
     end_time = time.time()
     print(f"Voice cloning completed in {end_time - start_time:.2f} seconds.")
-    sf.write(f"output_{choice}.wav", wavs[0], samplerate=sr)
+    sf.write(str(BASE_DIR / f"output_{voice_choice}.wav"), wavs[0], samplerate=sr)
 
 window.mainloop()
-
